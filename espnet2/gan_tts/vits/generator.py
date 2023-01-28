@@ -45,6 +45,15 @@ class VITSGenerator(torch.nn.Module):
         spks: Optional[int] = None,
         langs: Optional[int] = None,
         spk_embed_dim: Optional[int] = None,
+        use_gst: bool = False,
+        gst_tokens: int = 10,
+        gst_heads: int = 4,
+        gst_conv_layers: int = 6,
+        gst_conv_chans_list: Sequence[int] = (32, 32, 64, 64, 128, 128),
+        gst_conv_kernel_size: int = 3,
+        gst_conv_stride: int = 2,
+        gst_gru_layers: int = 1,
+        gst_gru_units: int = 128,
         global_channels: int = -1,
         segment_size: int = 32,
         text_encoder_attention_heads: int = 2,
@@ -99,6 +108,16 @@ class VITSGenerator(torch.nn.Module):
                 lids will be provided as the input and use sid embedding layer.
             spk_embed_dim (Optional[int]): Speaker embedding dimension. If set to > 0,
                 assume that spembs will be provided as the input.
+            use_gst (str): Whether to use global style token.
+            gst_tokens (int): Number of GST embeddings.
+            gst_heads (int): Number of heads in GST multihead attention.
+            gst_conv_layers (int): Number of conv layers in GST.
+            gst_conv_chans_list: (Sequence[int]): List of the number of channels of conv
+                layers in GST.
+            gst_conv_kernel_size (int): Kernel size of conv layers in GST.
+            gst_conv_stride (int): Stride size of conv layers in GST.
+            gst_gru_layers (int): Number of GRU layers in GST.
+            gst_gru_units (int): Number of GRU units in GST.
             global_channels (int): Number of global conditioning channels.
             segment_size (int): Segment size for decoder.
             text_encoder_attention_heads (int): Number of heads in conformer block
@@ -235,6 +254,7 @@ class VITSGenerator(torch.nn.Module):
         )
 
         self.upsample_factor = int(np.prod(decoder_upsample_scales))
+
         self.spks = None
         if spks is not None and spks > 1:
             assert global_channels > 0
@@ -250,6 +270,21 @@ class VITSGenerator(torch.nn.Module):
             assert global_channels > 0
             self.langs = langs
             self.lang_emb = torch.nn.Embedding(langs, global_channels)
+        self.use_gst = use_gst
+        if self.use_gst:
+            assert global_channels > 0
+            self.gst = StyleEncoder(
+                idim=aux_channels,
+                gst_tokens=gst_tokens,
+                gst_token_dim=global_channels,
+                gst_heads=gst_heads,
+                conv_layers=gst_conv_layers,
+                conv_chans_list=gst_conv_chans_list,
+                conv_kernel_size=gst_conv_kernel_size,
+                conv_stride=gst_conv_stride,
+                gru_layers=gst_gru_layers,
+                gru_units=gst_gru_units,
+            )
 
         # delayed import
         from espnet2.gan_tts.vits.monotonic_align import maximum_path
@@ -326,6 +361,13 @@ class VITSGenerator(torch.nn.Module):
         if self.langs is not None:
             # language one-hot vector embedding: (B, global_channels, 1)
             g_ = self.lang_emb(lids.view(-1)).unsqueeze(-1)
+            if g is None:
+                g = g_
+            else:
+                g = g + g_
+        if self.use_gst:
+            # gst vector: (B, global channels, 1)
+            g_ = self.gst(feats.tranpose(1,2)).unsqueeze(-1)
             if g is None:
                 g = g_
             else:
@@ -464,6 +506,14 @@ class VITSGenerator(torch.nn.Module):
         if self.langs is not None:
             # (B, global_channels, 1)
             g_ = self.lang_emb(lids.view(-1)).unsqueeze(-1)
+            if g is None:
+                g = g_
+            else:
+                g = g + g_
+
+        if self.use_gst:
+            # (B, global_channels, 1)
+            g_ = self.gst(feats.transpose(-2, -1).unsqueeze(-1)
             if g is None:
                 g = g_
             else:
