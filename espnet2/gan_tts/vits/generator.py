@@ -8,7 +8,7 @@ This code is based on https://github.com/jaywalnut310/vits.
 """
 
 import math
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Sequence
 
 import numpy as np
 import torch
@@ -21,6 +21,7 @@ from espnet2.gan_tts.vits.posterior_encoder import PosteriorEncoder
 from espnet2.gan_tts.vits.residual_coupling import ResidualAffineCouplingBlock
 from espnet2.gan_tts.vits.text_encoder import TextEncoder
 from espnet.nets.pytorch_backend.nets_utils import make_non_pad_mask
+from espnet2.tts.gst.style_encoder import StyleEncoder
 
 
 class VITSGenerator(torch.nn.Module):
@@ -367,7 +368,7 @@ class VITSGenerator(torch.nn.Module):
                 g = g + g_
         if self.use_gst:
             # gst vector: (B, global channels, 1)
-            g_ = self.gst(feats.tranpose(1,2)).unsqueeze(-1)
+            g_ = self.gst(feats.transpose(1,2)).unsqueeze(-1)
             if g is None:
                 g = g_
             else:
@@ -510,15 +511,13 @@ class VITSGenerator(torch.nn.Module):
                 g = g_
             else:
                 g = g + g_
-
         if self.use_gst:
             # (B, global_channels, 1)
-            g_ = self.gst(feats.transpose(-2, -1).unsqueeze(-1)
+            g_ = self.gst(feats.transpose(1,2)).unsqueeze(-1)
             if g is None:
                 g = g_
             else:
                 g = g + g_
-
         if use_teacher_forcing:
             # forward posterior encoder
             z, m_q, logs_q, y_mask = self.posterior_encoder(feats, feats_lengths, g=g)

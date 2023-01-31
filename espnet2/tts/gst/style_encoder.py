@@ -243,12 +243,10 @@ class StyleTokenLayer(torch.nn.Module):
 
         """
         batch_size = ref_embs.size(0)
-        # (num_tokens, token_dim) -> (batch_size, num_tokens, token_dim)
+        # (num_tokens, token_dim) -> (batch_size, num_tokens, token_dim // gst_heads)
         gst_embs = torch.tanh(self.gst_embs).unsqueeze(0).expand(batch_size, -1, -1)
-        # NOTE(kan-bayashi): Shoule we apply Tanh?
         ref_embs = ref_embs.unsqueeze(1)  # (batch_size, 1 ,ref_embed_dim)
         style_embs = self.mha(ref_embs, gst_embs, gst_embs, None)
-
         return style_embs.squeeze(1)
 
 
@@ -270,3 +268,33 @@ class MultiHeadedAttention(BaseMultiHeadedAttention):
         self.linear_out = torch.nn.Linear(n_feat, n_feat)
         self.attn = None
         self.dropout = torch.nn.Dropout(p=dropout_rate)
+
+
+    def forward_attention(self, value, scores, mask):
+        """Compute attention context vector.
+
+        Args:
+            value (torch.Tensor): Transformed value (#batch, n_head, time2, d_k).
+            scores (torch.Tensor): Attention score (#batch, n_head, time1, time2).
+            mask (torch.Tensor): Mask (#batch, 1, time2) or (#batch, time1, time2).
+
+        Returns:
+            torch.Tensor: Transformed value (#batch, time1, d_model)
+                weighted by the attention score (#batch, time1, time2).
+
+        """
+        n_batch = value.size(0)
+        self.attn = torch.softmax(scores, dim=-1)  # (batch, head, time1, time2)
+        p_attn = self.dropout(self.attn)
+
+        ## UNCOMMENT BELOW to mess with tokens
+        scale = [1,1,1,1,1,1,1,1,1,1]
+        for i in range(len(scale)):
+            p_attn[:,:,:, i] = scale[i]
+
+        x = torch.matmul(p_attn, value)  # (batch, head, time1, d_k)
+        x = (
+            x.transpose(1, 2).contiguous().view(n_batch, -1, self.h * self.d_k)
+        )  # (batch, time1, d_model)
+
+        return self.linear_out(x)  # (batch, time1, d_model)

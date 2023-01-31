@@ -224,7 +224,7 @@ class VITS(AbsGANTTS):
         """
         assert check_argument_types()
         super().__init__()
-
+        self.use_gst = generator_params["use_gst"]
         # define modules
         generator_class = AVAILABLE_GENERATERS[generator_type]
         if generator_type == "vits_generator":
@@ -553,6 +553,7 @@ class VITS(AbsGANTTS):
         feats: Optional[torch.Tensor] = None,
         sids: Optional[torch.Tensor] = None,
         spembs: Optional[torch.Tensor] = None,
+        speech: Optional[torch.Tensor] = None,
         lids: Optional[torch.Tensor] = None,
         durations: Optional[torch.Tensor] = None,
         noise_scale: float = 0.667,
@@ -596,10 +597,9 @@ class VITS(AbsGANTTS):
             lids = lids.view(1)
         if durations is not None:
             durations = durations.view(1, 1, -1)
-
         # inference
         if use_teacher_forcing:
-            assert feats is not None
+            assert feats is not None # this was moved from begining of conditional CHECK
             feats = feats[None].transpose(1, 2)
             feats_lengths = torch.tensor(
                 [feats.size(2)],
@@ -622,6 +622,7 @@ class VITS(AbsGANTTS):
                 text=text,
                 text_lengths=text_lengths,
                 sids=sids,
+                feats=feats.unsqueeze(0).transpose(1,2) if feats is not None else None,
                 spembs=spembs,
                 lids=lids,
                 dur=durations,
